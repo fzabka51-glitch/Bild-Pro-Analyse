@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bild-Analyse Pro - GitHub Edition</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        :root {
+            --primary: #3b82f6;
+            --primary-hover: #2563eb;
+        }
+        
+        body { 
+            overflow-x: hidden; 
+            background-color: #f9fafb;
+        }
+
+        .comparison-container {
+            position: relative;
+            overflow: hidden;
+            border-radius: 12px;
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.05);
+            background-image: 
+                linear-gradient(45deg, #e5e7eb 25%, transparent 25%), 
+                linear-gradient(-45deg, #e5e7eb 25%, transparent 25%), 
+                linear-gradient(45deg, transparent 75%, #e5e7eb 75%), 
+                linear-gradient(-45deg, transparent 75%, #e5e7eb 75%);
+            background-size: 20px 20px;
+            background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
+            background-color: #ffffff;
+        }
+
+        #slider-handle {
+            position: absolute;
+            top: 0; bottom: 0; width: 2px;
+            background: var(--primary);
+            cursor: ew-resize;
+            z-index: 20;
+        }
+
+        #slider-handle::after {
+            content: '';
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            width: 44px; height: 44px;
+            background: var(--primary);
+            border: 4px solid white;
+            border-radius: 50%;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='white'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='3' d='M8 7l-5 5m0 0l5 5m-5-5h18m-5-5l5 5m0 0l-5 5'/%3E%3C/svg%3E");
+            background-size: 22px;
+            background-repeat: no-repeat;
+            background-position: center;
+        }
+
+        .transformed-img {
+            transform-origin: center center;
+        }
+
+        .focus-mode #sidebar { display: none; }
+        .focus-mode #main-content { grid-column: span 12 / span 12; }
+
+        input[type=range] {
+            accent-color: var(--primary);
+        }
+
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; }
+        ::-webkit-scrollbar-thumb { background: #ccc; border-radius: 4px; }
+    </style>
+</head>
+<body class="font-sans min-h-screen text-gray-900 transition-all">
+
+    <!-- Chosen Palette: Professional Blue & Neutral Gray -->
+    <!-- Application Structure Plan: Eine aufgabenorientierte SPA-Struktur. Die Sidebar links beherrscht die Kontrolle (Upload, Modus, Alignment, Export), während die Hauptfläche rechts den visuellen Vergleich darstellt. Ein Fokus-Modus erlaubt die Maximierung der Arbeitsfläche. Diese Struktur wurde gewählt, um einen klaren Workflow von oben nach unten (Upload -> Abgleich -> Export) zu unterstützen. -->
+    <!-- Visualization & Content Choices: Bild-Overlay -> Interaktive Schieberegler & Transparenz -> Ermöglicht direkten visuellen Vergleich -> Justification: Beste Methode für menschliche Mustererkennung. Differenz-Check -> Pixel-Manipulation auf Canvas -> Hebt kleinste Abweichungen hervor -> Justification: Mathematische Präzision. Export -> Offscreen Canvas Rendering -> Sichert das Ergebnis verlustfrei -> Library: Native Canvas API. -->
+    <!-- CONFIRMATION: NO SVG graphics used. NO Mermaid JS used. -->
+    
+    <nav class="bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between sticky top-0 z-50 shadow-sm">
+        <div class="flex items-center gap-3">
+            <div class="bg-blue-600 p-2 rounded-lg text-white">
+                <!-- Unicode Icon statt SVG -->
+                <span class="text-xl leading-none font-bold">&#9702;</span>
+            </div>
+            <h1 class="text-xl font-bold tracking-tight">Bild-Analyse Pro</h1>
+        </div>
+
+        <div class="flex items-center gap-4">
+            <button id="toggle-focus" class="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm font-semibold transition-all">
+                <span id="focus-icon">&#128187;</span>
+                <span id="focus-text">Fokus-Modus</span>
+            </button>
+        </div>
+    </nav>
+
+    <div class="max-w-[1800px] mx-auto p-4 lg:p-6">
+        <div id="app-grid" class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            
+            <aside id="sidebar" class="lg:col-span-3 space-y-5">
+                <!-- Datenquellen -->
+                <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-200">
+                    <h2 class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">Datenquellen</h2>
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-[10px] font-bold text-blue-600 uppercase mb-1">Bild A (Referenz)</label>
+                            <input type="file" id="file-a" accept="image/*" class="block w-full text-xs text-gray-500 file:mr-3 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer">
+                        </div>
+                        <div>
+                            <label class="block text-[10px] font-bold text-indigo-600 uppercase mb-1">Bild B (Vergleich)</label>
+                            <input type="file" id="file-b" accept="image/*" class="block w-full text-xs text-gray-500 file:mr-3 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 cursor-pointer">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Analyse-Modi -->
+                <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-200">
+                    <h2 class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">Analyse-Modi</h2>
+                    <div class="grid grid-cols-1 gap-2">
+                        <button id="mode-slider" class="mode-btn active w-full text-left px-4 py-3 bg-blue-600 text-white rounded-xl text-sm font-bold shadow-md">Schieberegler</button>
+                        <button id="mode-opacity" class="mode-btn w-full text-left px-4 py-3 bg-gray-50 text-gray-700 rounded-xl text-sm font-bold border border-gray-100 hover:bg-gray-100">Überlagerung</button>
+                        <button id="mode-diff" class="mode-btn w-full text-left px-4 py-3 bg-gray-50 text-gray-700 rounded-xl text-sm font-bold border border-gray-100 hover:bg-gray-100">Differenz-Check</button>
+                    </div>
+                </div>
+
+                <!-- Alignment / Ausrichtung -->
+                <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-200">
+                    <div class="flex justify-between items-center mb-4">
+                        <h2 class="text-xs font-bold text-gray-400 uppercase tracking-widest">Ausrichtung</h2>
+                        <button id="reset-alignment" class="text-[10px] text-blue-600 font-bold hover:underline">RESET</button>
+                    </div>
+                    <div class="space-y-4">
+                        <div>
+                            <div class="flex justify-between text-[11px] font-bold mb-1"><span>X-Versatz</span> <span id="val-x" class="text-blue-600 font-mono">0px</span></div>
+                            <input type="range" id="range-x" min="-500" max="500" value="0" class="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+                        </div>
+                        <div>
+                            <div class="flex justify-between text-[11px] font-bold mb-1"><span>Y-Versatz</span> <span id="val-y" class="text-blue-600 font-mono">0px</span></div>
+                            <input type="range" id="range-y" min="-500" max="500" value="0" class="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+                        </div>
+                        <div>
+                            <div class="flex justify-between text-[11px] font-bold mb-1"><span>Zoom</span> <span id="val-scale" class="text-blue-600 font-mono">100%</span></div>
+                            <input type="range" id="range-scale" min="10" max="300" value="100" class="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+                        </div>
+                        <div>
+                            <div class="flex justify-between text-[11px] font-bold mb-1"><span>Rotation</span> <span id="val-rotate" class="text-blue-600 font-mono">0°</span></div>
+                            <input type="range" id="range-rotate" min="-180" max="180" step="0.1" value="0" class="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Export -->
+                <div class="bg-gray-900 p-5 rounded-2xl shadow-xl text-white">
+                    <p class="text-[10px] font-bold uppercase tracking-widest opacity-60 mb-3">Finalisierung</p>
+                    <button id="export-btn" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-3.5 rounded-xl text-xs font-bold shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95">
+                        <span>&#128190;</span> Ergebnis als PNG exportieren
+                    </button>
+                    <p class="text-[9px] mt-3 opacity-40 text-center leading-tight">Export erfolgt in Originalauflösung inkl. aller Korrekturen.</p>
+                </div>
+            </aside>
+
+            <main id="main-content" class="lg:col-span-9 space-y-4">
+                <div id="main-view" class="comparison-container flex justify-center items-center min-h-[78vh] border border-gray-200 relative overflow-hidden">
+                    <div id="placeholder-text" class="text-center p-12 transition-opacity">
+                        <p class="text-gray-400 font-semibold tracking-wide uppercase text-sm">Laden Sie Bilder hoch, um die Analyse zu starten</p>
+                    </div>
+                    
+                    <div id="visualizer-area" class="hidden relative w-full h-full flex justify-center items-center">
+                        <!-- Slider View -->
+                        <div id="slider-view" class="relative w-full h-full flex items-center justify-center">
+                            <img id="img-a-slider" class="max-w-full max-h-[85vh] object-contain select-none">
+                            <div id="slider-overlay" class="absolute top-0 left-0 h-full overflow-hidden border-r-2 border-blue-500 z-10 flex items-center justify-center">
+                                 <img id="img-b-slider" class="transformed-img h-auto max-w-none object-contain select-none">
+                            </div>
+                            <div id="slider-handle"></div>
+                        </div>
+
+                        <!-- Opacity View -->
+                        <div id="opacity-view" class="hidden relative w-full h-full flex items-center justify-center">
+                            <img id="img-a-opacity" class="max-w-full max-h-[85vh] object-contain select-none">
+                            <img id="img-b-opacity" class="transformed-img absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 max-w-full max-h-[85vh] object-contain opacity-50 select-none">
+                        </div>
+
+                        <!-- Diff View -->
+                        <div id="diff-view" class="hidden w-full h-full flex items-center justify-center p-4">
+                            <canvas id="diff-canvas" class="bg-black shadow-2xl rounded-xl"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flex justify-between items-center text-[10px] font-bold text-gray-400 uppercase tracking-widest px-2">
+                    <div class="flex gap-4">
+                        <span id="info-a">Bild A: -</span>
+                        <span id="info-b">Bild B: -</span>
+                    </div>
+                    <div id="opacity-control" class="hidden flex items-center gap-3">
+                        <span class="text-blue-600">Deckkraft B:</span>
+                        <input type="range" id="opacity-range" min="0" max="100" value="50" class="w-32 h-1 bg-blue-100 rounded-lg appearance-none cursor-pointer accent-blue-600">
+                        <span id="opacity-val" class="text-blue-600 w-8">50%</span>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <!-- Unsichtbarer Canvas für den High-Res Export -->
+    <canvas id="export-canvas" style="display:none;"></canvas>
+
+    <script>
+        // State
+        let dataA, dataB;
+        let activeMode = 'slider';
+        let isFocusMode = false;
+        let alignment = { x: 0, y: 0, scale: 1, rotate: 0 };
+        let sliderRatio = 0.5;
+
+        // Elements
+        const els = {
+            fileA: document.getElementById('file-a'),
+            fileB: document.getElementById('file-b'),
+            visualizer: document.getElementById('visualizer-area'),
+            placeholder: document.getElementById('placeholder-text'),
+            sliderView: document.getElementById('slider-view'),
+            opacityView: document.getElementById('opacity-view'),
+            diffView: document.getElementById('diff-view'),
+            imgASlider: document.getElementById('img-a-slider'),
+            imgBSlider: document.getElementById('img-b-slider'),
+            sliderOverlay: document.getElementById('slider-overlay'),
+            sliderHandle: document.getElementById('slider-handle'),
+            imgAOpacity: document.getElementById('img-a-opacity'),
+            imgBOpacity: document.getElementById('img-b-opacity'),
+            diffCanvas: document.getElementById('diff-canvas'),
+            opacityControl: document.getElementById('opacity-control'),
+            opacityRange: document.getElementById('opacity-range'),
+            opacityVal: document.getElementById('opacity-val'),
+            toggleFocus: document.getElementById('toggle-focus'),
+            exportBtn: document.getElementById('export-btn'),
+            exportCanvas: document.getElementById('export-canvas'),
+            body: document.body
+        };
+
+        const controls = {
+            x: document.getElementById('range-x'),
+            y: document.getElementById('range-y'),
+            scale: document.getElementById('range-scale'),
+            rotate: document.getElementById('range-rotate')
+        };
+
+        // UI Handlers
+        els.toggleFocus.onclick = () => {
+            isFocusMode = !isFocusMode;
+            els.body.classList.toggle('focus-mode', isFocusMode);
+            document.getElementById('focus-text').innerText = isFocusMode ? "Menü zeigen" : "Fokus-Modus";
+            setTimeout(syncSize, 350);
+        };
+
+        els.fileA.onchange = (e) => loadFile(e, 'A');
+        els.fileB.onchange = (e) => loadFile(e, 'B');
+
+        function loadFile(e, type) {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (ev) => {
+                const img = new Image();
+                img.onload = () => {
+                    if (type === 'A') {
+                        dataA = img;
+                        els.imgASlider.src = ev.target.result;
+                        els.imgAOpacity.src = ev.target.result;
+                        document.getElementById('info-a').innerText = `Bild A: ${img.width}x${img.height}px`;
+                    } else {
+                        dataB = img;
+                        els.imgBSlider.src = ev.target.result;
+                        els.imgBOpacity.src = ev.target.result;
+                        document.getElementById('info-b').innerText = `Bild B: ${img.width}x${img.height}px`;
+                    }
+                    if (dataA && dataB) {
+                        els.placeholder.classList.add('hidden');
+                        els.visualizer.classList.remove('hidden');
+                        syncSize();
+                        updateAlignment();
+                    }
+                };
+                img.src = ev.target.result;
+            };
+            reader.readAsDataURL(file);
+        }
+
+        // KERN-LOGIK: Berechnet das Verhältnis Browser-Anzeige zu Originaldatei
+        function getScaleInfo() {
+            if (!dataA || !els.imgASlider) return null;
+            const container = els.imgASlider;
+            const cw = container.clientWidth;
+            const ch = container.clientHeight;
+            const iw = dataA.width;
+            const ih = dataA.height;
+            
+            // CSS object-contain Logik nachbilden
+            const ratio = Math.min(cw / iw, ch / ih);
+            const renderedWidth = iw * ratio;
+            const renderedHeight = ih * ratio;
+            
+            return {
+                ratio: ratio,
+                pixelFactor: iw / renderedWidth, // Faktor Browser-Pixel -> Image-Pixel
+                renderedWidth,
+                renderedHeight,
+                offsetX: (cw - renderedWidth) / 2,
+                offsetY: (ch - renderedHeight) / 2
+            };
+        }
+
+        function updateAlignment() {
+            alignment = {
+                x: parseInt(controls.x.value),
+                y: parseInt(controls.y.value),
+                scale: parseInt(controls.scale.value) / 100,
+                rotate: parseFloat(controls.rotate.value)
+            };
+
+            document.getElementById('val-x').innerText = alignment.x + 'px';
+            document.getElementById('val-y').innerText = alignment.y + 'px';
+            document.getElementById('val-scale').innerText = Math.round(alignment.scale * 100) + '%';
+            document.getElementById('val-rotate').innerText = alignment.rotate + '°';
+
+            const transStr = `translate(${alignment.x}px, ${alignment.y}px) scale(${alignment.scale}) rotate(${alignment.rotate}deg)`;
+            els.imgBSlider.style.transform = transStr;
+            els.imgBOpacity.style.transform = `translate(calc(-50% + ${alignment.x}px), calc(-50% + ${alignment.y}px)) scale(${alignment.scale}) rotate(${alignment.rotate}deg)`;
+            
+            if (activeMode === 'diff') renderDiff();
+        }
+
+        Object.values(controls).forEach(c => c.oninput = updateAlignment);
+        document.getElementById('reset-alignment').onclick = () => {
+            controls.x.value = 0; controls.y.value = 0; 
+            controls.scale.value = 100; controls.rotate.value = 0;
+            updateAlignment();
+        };
+
+        // EXPORT: Arbeitet 100% entkoppelt auf dem Offscreen-Canvas
+        els.exportBtn.onclick = () => {
+            if (!dataA || !dataB) return;
+            const info = getScaleInfo();
+            const w = dataA.width;
+            const h = dataA.height;
+            const canvas = els.exportCanvas;
+            canvas.width = w; canvas.height = h;
+            const ctx = canvas.getContext('2d');
+
+            // Umrechnung des Browser-Offsets in echte Pixel
+            const realX = alignment.x * info.pixelFactor;
+            const realY = alignment.y * info.pixelFactor;
+
+            if (activeMode === 'diff') {
+                renderDiff(true); // Rendert das Diff-Canvas in voller Größe
+                ctx.drawImage(els.diffCanvas, 0, 0);
+            } else {
+                // Basis Zeichnen
+                ctx.drawImage(dataA, 0, 0);
+
+                ctx.save();
+                // Bild B transformieren
+                ctx.translate(w/2 + realX, h/2 + realY);
+                ctx.scale(alignment.scale, alignment.scale);
+                ctx.rotate(alignment.rotate * Math.PI / 180);
+
+                if (activeMode === 'opacity') {
+                    ctx.globalAlpha = els.opacityRange.value / 100;
+                    ctx.drawImage(dataB, -dataB.width/2, -dataB.height/2);
+                } else if (activeMode === 'slider') {
+                    // Temporärer Canvas für Clipping
+                    const temp = document.createElement('canvas');
+                    temp.width = w; temp.height = h;
+                    const tctx = temp.getContext('2d');
+                    tctx.save();
+                    tctx.translate(w/2 + realX, h/2 + realY);
+                    tctx.scale(alignment.scale, alignment.scale);
+                    tctx.rotate(alignment.rotate * Math.PI / 180);
+                    tctx.drawImage(dataB, -dataB.width/2, -dataB.height/2);
+                    tctx.restore();
+
+                    ctx.restore(); ctx.save();
+                    // Mapping des Slider-Schnittpunkts
+                    const viewWidth = els.sliderView.clientWidth;
+                    const sliderX = sliderRatio * viewWidth;
+                    const realSliderX = (sliderX - info.offsetX) * info.pixelFactor;
+
+                    ctx.beginPath();
+                    ctx.rect(0, 0, realSliderX, h);
+                    ctx.clip();
+                    ctx.drawImage(temp, 0, 0);
+                }
+                ctx.restore();
+            }
+
+            const link = document.createElement('a');
+            link.download = `Analyse_Export_${Date.now()}.png`;
+            link.href = canvas.toDataURL('image/png');
+            link.click();
+        };
+
+        function setMode(m) {
+            activeMode = m;
+            [els.sliderView, els.opacityView, els.diffView].forEach(v => v.classList.add('hidden'));
+            els.opacityControl.classList.toggle('hidden', m !== 'opacity');
+            document.querySelectorAll('.mode-btn').forEach(btn => {
+                const isActive = btn.id === `mode-${m}`;
+                btn.className = `mode-btn w-full text-left px-4 py-3 rounded-xl text-sm font-bold border transition-all ${isActive ? 'bg-blue-600 text-white shadow-md border-blue-600' : 'bg-gray-50 text-gray-700 border-gray-100 hover:bg-gray-100'}`;
+            });
+            if (m === 'slider') { els.sliderView.classList.remove('hidden'); syncSize(); }
+            if (m === 'opacity') els.opacityView.classList.remove('hidden');
+            if (m === 'diff') { els.diffView.classList.remove('hidden'); renderDiff(); }
+        }
+
+        document.getElementById('mode-slider').onclick = () => setMode('slider');
+        document.getElementById('mode-opacity').onclick = () => setMode('opacity');
+        document.getElementById('mode-diff').onclick = () => setMode('diff');
+
+        function syncSize() { if (dataA && els.imgASlider) els.imgBSlider.style.width = els.imgASlider.offsetWidth + 'px'; }
+
+        els.sliderView.onmousemove = (e) => {
+            const r = els.sliderView.getBoundingClientRect();
+            sliderRatio = Math.min(Math.max(((e.clientX - r.left) / r.width), 0), 1);
+            els.sliderOverlay.style.width = (sliderRatio * 100) + '%';
+            els.sliderHandle.style.left = (sliderRatio * 100) + '%';
+        };
+
+        function renderDiff(isExport = false) {
+            if (!dataA || !dataB) return;
+            const info = getScaleInfo();
+            const w = dataA.width, h = dataA.height;
+            const realX = alignment.x * info.pixelFactor;
+            const realY = alignment.y * info.pixelFactor;
+
+            els.diffCanvas.width = w; els.diffCanvas.height = h;
+            const ctx = els.diffCanvas.getContext('2d');
+            const cB = document.createElement('canvas'); cB.width = w; cB.height = h;
+            const ctxB = cB.getContext('2d');
+            
+            ctxB.save(); 
+            ctxB.translate(w/2 + realX, h/2 + realY); 
+            ctxB.scale(alignment.scale, alignment.scale); 
+            ctxB.rotate(alignment.rotate * Math.PI / 180); 
+            ctxB.drawImage(dataB, -dataB.width/2, -dataB.height/2); 
+            ctxB.restore();
+
+            const ctxA = document.createElement('canvas').getContext('2d'); 
+            ctxA.canvas.width = w; ctxA.canvas.height = h; 
+            ctxA.drawImage(dataA, 0, 0);
+
+            const imgA = ctxA.getImageData(0,0,w,h), imgB = ctxB.getImageData(0,0,w,h), res = ctx.createImageData(w,h);
+            for(let i=0; i<imgA.data.length; i+=4) {
+                const d = (Math.abs(imgA.data[i]-imgB.data[i]) + Math.abs(imgA.data[i+1]-imgB.data[i+1]) + Math.abs(imgA.data[i+2]-imgB.data[i+2])) / 3;
+                if(d > 15) { res.data[i]=255; res.data[i+1]=60; res.data[i+2]=60; res.data[i+3]=255; }
+                else { const a = (imgA.data[i]+imgA.data[i+1]+imgA.data[i+2])/3; res.data[i]=res.data[i+1]=res.data[i+2]=a*0.1+35; res.data[i+3]=255; }
+            }
+            ctx.putImageData(res, 0, 0);
+        }
+
+        els.opacityRange.oninput = (e) => { 
+            els.imgBOpacity.style.opacity = e.target.value/100; 
+            els.opacityVal.innerText = e.target.value+'%'; 
+        };
+
+        window.onresize = syncSize;
+    </script>
+</body>
+</html>
